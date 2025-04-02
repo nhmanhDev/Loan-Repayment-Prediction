@@ -13,7 +13,7 @@ def get_base64_image(image_path):
         return base64.b64encode(img_file.read()).decode()
 
 # Đường dẫn ảnh nền
-image_path = "lending_image3.jpg"
+image_path = "lending_image.jpg"
 base64_image = get_base64_image(image_path)
 
 # CSS đặt ảnh nền
@@ -62,16 +62,21 @@ st.markdown(
 st.markdown("""<div class='custom-subheader'>Nhập thông tin</div>""", unsafe_allow_html=True)
 
 # Tải mô hình và bộ scaler
-model = joblib.load("knn_best.pkl")
+model = joblib.load("rf_model.pkl")
 scaler = joblib.load("scaler.pkl")
 
 # Tạo form nhập liệu
 with st.form(key="loan_form"):
-    st.markdown('<p class="custom-label">Số tiền vay (USD)</p>', unsafe_allow_html=True)
-    loan_amnt = st.number_input("1", min_value=0.0, max_value=1000000.0, value=10000.0)
 
+    st.markdown('<p class="custom-label">Thu nhập(USD)</p>', unsafe_allow_html=True)
+    annual_inc = st.number_input("1", min_value=0.0, max_value=1000000.0, value=100000.0)
+
+    st.markdown('<p class="custom-label">Số tiền vay (USD)</p>', unsafe_allow_html=True)
+    loan_amnt = st.number_input("1", min_value=0.0, max_value=1000000.0, value=50000.0)
+
+    
     st.markdown('<p class="custom-label">Lãi suất (%)</p>', unsafe_allow_html=True)
-    int_rate = st.number_input("2", min_value=0.0, max_value=100.0, value=1.0)
+    int_rate = st.number_input("2", min_value=0.0, max_value=100.0, value=10.0)
 
     st.markdown('<p class="custom-label">Số tài khoản tín dụng đang mở</p>', unsafe_allow_html=True)
     open_acc = st.number_input("3", min_value=0, max_value=100, value=1)
@@ -109,6 +114,8 @@ with st.form(key="loan_form"):
     st.markdown('<p class="custom-label">Loại đơn vay</p>', unsafe_allow_html=True)
     application_type = st.selectbox("14", ["Individual", "Joint", "DIRECT_PAY"])
 
+    
+
     # Thêm nút submit
     submit_button = st.form_submit_button(label="Dự đoán")
 
@@ -117,21 +124,44 @@ if submit_button:
     input_data = pd.DataFrame({
         'loan_amnt': [loan_amnt],
         'int_rate': [int_rate],
-        'open_acc': [open_acc],
+        
+        'earliest_cr_line': [earliest_cr_line],
         'dti': [dti],
+        'open_acc': [open_acc],
         'pub_rec': [pub_rec],
         'revol_util': [revol_util],
-        'earliest_cr_line': [earliest_cr_line],
+        
+        'annual_inc': [annual_inc],
+
         'mort_acc': [mort_acc],
+        
+        'zip_code': [zip_code],
         'term': [term],
         'sub_grade': [sub_grade],
-        'zip_code': [zip_code],
-        'home_ownership': [home_ownership],
+        
         'purpose': [purpose],
         'application_type': [application_type],
+        
+        'home_ownership': [home_ownership],
     })
 
-    dummies = ['term', 'sub_grade', 'zip_code', 'home_ownership', 'purpose', 'application_type']
+    # data = pd.get_dummies(data, columns=['zip_code'], drop_first=True)
+
+    input_data['zip_code'] = input_data['zip_code'].astype(int)
+
+    zip_risk = {
+        813: 0.00, 5113: 0.00, 29597: 0.00,
+        93700: 1.00, 86630: 1.00, 11650: 1.00,
+        70466: 0.80, 30723: 0.80, 22690: 0.80, 48052: 0.2
+    }
+
+    input_data['annual_inc'] = np.log1p(input_data['annual_inc'])
+
+    input_data['zip_code'] = input_data['zip_code'].map(zip_risk)
+
+
+    dummies = ['term', 'sub_grade', 'purpose', 'application_type', 'home_ownership']
+    # input_data = pd.get_dummies(input_data, columns=dummies, drop_first=True)
     input_data = pd.get_dummies(input_data, columns=dummies)
 
     missing_cols = set(scaler.feature_names_in_) - set(input_data.columns)
@@ -145,7 +175,8 @@ if submit_button:
     probability_fully_paid = model.predict_proba(input_data_scaled)[0][0]
 
     # Kiểm tra kết quả dự đoán và áp dụng màu sắc
-    if prediction == 0:
+    threshold = 0.5  # Ngưỡng xác suất để phân loại là "Fully Paid"
+    if probability_fully_paid >= threshold:
         result_text = "✅ Fully Paid (Hoàn trả đầy đủ)"
         box_color = "#2FF93C"  # Xanh lá cây
     else:
